@@ -89,7 +89,13 @@ output_stat() {
     return 1
   fi
 
-  block_newlines file "${file_name}"
+  if ! block_newlines file "${file_name}"; then
+    existing_mode=''
+    existing_owner=''
+    existing_group=''
+    file_name_from_stat=''
+    return 0
+  fi
 
   if [ ! -e "${file_name}" ]; then
     log info "File does not exist. file_name: '${file_name}'" >&2
@@ -217,6 +223,11 @@ add_to_policy() {
   file_capabilities="${5:-}"
   updated_entry=false
 
+  if [ -z "${file_name}" ]; then
+    log warn "Skipping policy entry with empty file name. processed_config_line: '${processed_config_line}'" >&2
+    return
+  fi
+
   if [ -h "${file_name}" ]; then
     file_name="$(realpath "${file_name}")" || return 1
   fi
@@ -277,7 +288,14 @@ load_early_nosuid_policy() {
     ## exiting_mode
     ## existing_owner
     ## existing_group
-    output_stat "${find_list_item}"
+    if ! output_stat "${find_list_item}"; then
+      file_name_from_stat=''
+      existing_mode=''
+      existing_owner=''
+      existing_group=''
+      echo "... '${find_list_item}' cannot be inspected"
+      continue
+    fi
     if [ -z "${file_name_from_stat}" ]; then
       continue
     fi
@@ -319,6 +337,12 @@ match_dir() {
 
   base_str="${1}"
   match_str="${2}"
+
+  if [ -z "${base_str}" ] || [ -z "${match_str}" ]; then
+    log warn "Cannot match empty path component(s). base_str: '${base_str}', match_str: '${match_str}'" >&2
+    return 1
+  fi
+
   [[ "${base_str}" =~ '//' ]] && return 1
   [[ "${match_str}" =~ '//' ]] && return 1
 
@@ -490,7 +514,14 @@ load_state() {
     if [[ " ${state_file_list[*]} " =~ " ${policy_file_item} " ]]; then
       continue
     fi
-    output_stat "${policy_file_item}"
+    if ! output_stat "${policy_file_item}"; then
+      file_name_from_stat=''
+      existing_mode=''
+      existing_owner=''
+      existing_group=''
+      echo "... '${policy_file_item}' cannot be inspected"
+      continue
+    fi
     if [ -z "${file_name_from_stat}" ]; then
       continue
     fi
@@ -529,9 +560,9 @@ apply_policy() {
     done
     if [ "${did_state_update}" = 'false' ]; then
       exit_code=206
-      log error \
-        "File exists in policy but not in state! File: '${policy_file_list[policy_idx]}'"
-      exit "${exit_code}"
+      log warn \
+        "Skipping policy entry missing from state: '${policy_file_list[policy_idx]}'" >&2
+      continue
     fi
   done
 }
@@ -562,10 +593,18 @@ commit_policy() {
     ## group is the string we want. BASH_REMATCH[0] is the entire string,
     ## BASH_REMATCH[1] is the first match that we want to discard, and
     ## BASH_REMATCH[2] is the desired second group.
-    [[ "${state_mode_item}" =~ ^(0*)(.*) ]] || true;
-    state_mode_item="${BASH_REMATCH[2]}"
+    if [[ "${state_mode_item}" =~ ^(0*)(.*) ]]; then
+      state_mode_item="${BASH_REMATCH[2]}"
+    fi
 
-    output_stat "${state_file_item}"
+    if ! output_stat "${state_file_item}"; then
+      file_name_from_stat=''
+      existing_mode=''
+      existing_owner=''
+      existing_group=''
+      echo "... '${state_file_item}' cannot be inspected"
+      continue
+    fi
     if [ -z "${file_name_from_stat}" ]; then
       continue
     fi
@@ -708,7 +747,7 @@ undo_policy_for_file() {
     fi
   done
 
-  if ! [[ "${did_undo}" = 'false' ]]; then
+  if [[ "${did_undo}" = 'false' ]]; then
     log info "The specified file is not hardened, leaving unchanged.
 
   File '${undo_file}' has not been removed from SUID Disabler and Permission Hardener during this invocation. This is expected if no policy was ever applied to the file before.
@@ -797,7 +836,11 @@ print_raw_state() {
   for state_file in "${store_dir}/existing_mode/statoverride" \
     "${store_dir}/new_mode/statoverride"; do
     echo "*** begin ${state_file} ***"
-    cat "${state_file}"
+    if [ -f "${state_file}" ]; then
+      cat "${state_file}"
+    else
+      echo "(file does not exist)"
+    fi
     echo "***   end ${state_file} ***"
   done
 }
@@ -826,12 +869,20 @@ print_fs_audit() {
     ## group is the string we want. BASH_REMATCH[0] is the entire string,
     ## BASH_REMATCH[1] is the first match that we want to discard, and
     ## BASH_REMATCH[2] is the desired second group.
-    [[ "${state_mode_item}" =~ ^(0*)(.*) ]] || true;
-    state_mode_item="${BASH_REMATCH[2]}"
+    if [[ "${state_mode_item}" =~ ^(0*)(.*) ]]; then
+      state_mode_item="${BASH_REMATCH[2]}"
+    fi
 
-    output_stat "${state_file_item}"
+    if ! output_stat "${state_file_item}"; then
+      file_name_from_stat=''
+      existing_mode=''
+      existing_owner=''
+      existing_group=''
+      echo "... '${state_file_item}' cannot be inspected"
+      continue
+    fi
     if [ -z "${file_name_from_stat}" ]; then
-      echo "... '${file_name_from_stat}' does not exist"
+      echo "... '${state_file_item}' does not exist"
       continue
     fi
 
