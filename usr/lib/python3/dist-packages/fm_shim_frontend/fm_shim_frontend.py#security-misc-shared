@@ -15,6 +15,7 @@ import os
 import signal
 import subprocess
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from typing import NoReturn
 from types import FrameType
 
@@ -100,6 +101,18 @@ class FmShimWindow(QDialog):
             )
             sys.exit(1)
 
+        ## Expect a plain desktop filename, not a path.
+        if (
+            default_fm_desktop_file == ""
+            or "/" in default_fm_desktop_file
+            or not default_fm_desktop_file.endswith(".desktop")
+        ):
+            print(
+                "ERROR: Invalid default file manager desktop file name!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         search_dir_list: list[str] = []
         try:
             search_dir_list.append(os.environ["XDG_DATA_HOME"])
@@ -172,20 +185,23 @@ def get_path_list_from_uris(
     path_set: set[Path] = set()
 
     for uri in uri_list:
+        uri_components = urlsplit(uri)
+
         ## Only respect local file URIs.
-        if not uri.startswith("file:///"):
+        if uri_components.scheme != "file":
+            continue
+        if uri_components.netloc not in ("", "localhost"):
             continue
 
-        ## Do not permit Unicode or control characters in URIs.
+        path_str: str = unquote(uri_components.path)
+
+        ## Do not permit control characters in paths.
         ## TODO: This could cause problems for non-English users, do we want
         ## to establish a set of "safe" Unicode?
-        for uri_char in uri:
-            if not 0x20 <= ord(uri_char) <= 0x7E:
-                continue
+        if any(ord(path_char) < 0x20 for path_char in path_str):
+            continue
 
-        ## "file:///" is 8 characters long, but we want to keep the leading /,
-        ## so we only remove the first 7 characters.
-        path_item: Path = Path(uri[7:])
+        path_item: Path = Path(path_str)
 
         ## Grab the parent dir if necessary. Note that we aren't able to
         ## actually highlight items or show item properties with the API that
