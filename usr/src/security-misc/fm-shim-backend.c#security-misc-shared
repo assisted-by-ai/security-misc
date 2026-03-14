@@ -27,7 +27,7 @@ DBusError error_data = { 0 };
 DBusConnection *dbus_conn = NULL;
 
 void launch_frontend_process(const char *mode_opt, char **uri_list,
-  int uri_list_len) {
+  size_t uri_list_len) {
   /*
    * Most of the code here is inspired heavily by the qubes-gui-runuser
    * function 'augment_pam_env_with_systemd_env()'. We need to get systemd's
@@ -145,15 +145,18 @@ void launch_frontend_process(const char *mode_opt, char **uri_list,
   env_arr[env_arr_len - 1] = NULL;
 
   /* Now that we have the environment array, we can build the arg array. */
-  arg_arr = reallocarray(arg_arr, (size_t)(uri_list_len) + 4,
-    sizeof(const char *));
+  if (uri_list_len > SIZE_MAX - 4) {
+    errx(1, "launch_frontend_process: URI list length is too large!");
+  }
+
+  arg_arr = reallocarray(arg_arr, uri_list_len + 4, sizeof(const char *));
   if (arg_arr == NULL) {
     err(1, "launch_frontend_process: Failed to allocate memory for argument array!");
   }
   arg_arr[0] = "/usr/bin/fm-shim-frontend";
   arg_arr[1] = mode_opt;
   arg_arr[2] = "--";
-  for (uri_list_idx = 0; uri_list_idx < (size_t)(uri_list_len); uri_list_idx++) {
+  for (uri_list_idx = 0; uri_list_idx < uri_list_len; uri_list_idx++) {
     arg_arr[uri_list_idx + 3] = uri_list[uri_list_idx];
   }
   arg_arr[uri_list_len + 3] = NULL;
@@ -204,6 +207,7 @@ void handle_dbus_method_call(DBusMessage *dbus_msg,
   const char *method_call_name, const char *mode_opt) {
   char **uri_list = NULL;
   int uri_list_len = 0;
+  size_t uri_list_len_sz = 0;
   dbus_bool_t did_extract_args = FALSE;
   const char *startup_id = NULL;
   DBusMessage *method_return = NULL;
@@ -222,8 +226,15 @@ void handle_dbus_method_call(DBusMessage *dbus_msg,
     goto method_cleanup;
   }
 
+  if (uri_list_len < 0) {
+    warnx("handle_dbus_method_call: Received a D-Bus method call for method '%s' with a negative URI list length!",
+      method_call_name);
+    goto method_cleanup;
+  }
+  uri_list_len_sz = (size_t)uri_list_len;
+
   if (dbus_message_get_no_reply(dbus_msg) == TRUE) {
-    launch_frontend_process(mode_opt, uri_list, uri_list_len);
+    launch_frontend_process(mode_opt, uri_list, uri_list_len_sz);
     goto method_cleanup;
   }
 
@@ -241,7 +252,7 @@ void handle_dbus_method_call(DBusMessage *dbus_msg,
    */
   dbus_connection_flush(dbus_conn);
 
-  launch_frontend_process(mode_opt, uri_list, uri_list_len);
+  launch_frontend_process(mode_opt, uri_list, uri_list_len_sz);
 
 method_cleanup:
   if (method_return != NULL) {
