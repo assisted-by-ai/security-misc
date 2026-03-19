@@ -12,9 +12,12 @@ directories in the default file manager.
 
 import sys
 import os
+import pwd
+import stat
 import signal
 import subprocess
 import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, cast
 from types import FrameType
@@ -34,6 +37,53 @@ from PyQt5.QtWidgets import (
     QLayout,
     QMessageBox,
 )
+
+
+@dataclass(frozen=True)
+class ApprovedDirectory:
+    """
+    Represents a previously validated directory along with stable metadata
+    that can be used to detect path swaps before launch.
+    """
+
+    path: Path
+    device_id: int
+    inode_id: int
+
+    @classmethod
+    def from_path(cls, path_item: Path) -> "ApprovedDirectory":
+        """
+        Build an ApprovedDirectory from a canonical, existing directory path.
+        """
+
+        stat_result = path_item.stat()
+        return cls(
+            path=path_item,
+            device_id=stat_result.st_dev,
+            inode_id=stat_result.st_ino,
+        )
+
+    def resolve_if_unchanged(self) -> Path | None:
+        """
+        Re-resolve the directory and ensure it still points to the same inode.
+        """
+
+        try:
+            resolved_path = self.path.resolve(strict=True)
+            stat_result = resolved_path.stat()
+        except OSError:
+            return None
+
+        if not stat.S_ISDIR(stat_result.st_mode):
+            return None
+
+        if (
+            stat_result.st_dev != self.device_id
+            or stat_result.st_ino != self.inode_id
+        ):
+            return None
+
+        return resolved_path
 
 
 class WidgetShowBinding(QObject):
@@ -92,7 +142,7 @@ class FmShimWindow(QDialog):
 
     def __init__(
         self,
-        dir_list: list[Path],
+        dir_list: list[ApprovedDirectory],
         parent: QDialog | None = None
     ) -> None:
         """
@@ -119,7 +169,7 @@ class FmShimWindow(QDialog):
             QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         )
         self.dir_list_view.setText(
-            "\n".join([str(x) for x in dir_list]).replace(
+            "\n".join([str(x.path) for x in dir_list]).replace(
                 " ", "\N{MIDDLE DOT}"
             )
         )
@@ -227,47 +277,23 @@ class FmShimWindow(QDialog):
             )
             sys.exit(1)
 
-        search_dir_list: list[str] = []
+        search_dir_list: list[Path] = []
 
-        ## "" rather than None is intentional here, as
-        ## os.environ["XDG_DATA_HOME"] may be "", not None.
-        xdg_data_home: str = ""
         try:
-            xdg_data_home = os.environ["XDG_DATA_HOME"]
+            passwd_home = pwd.getpwuid(os.getuid()).pw_dir
         except KeyError:
-            pass
-        if xdg_data_home == "":
-            home_env_var = ""
-            try:
-                home_env_var = os.environ["HOME"]
-            except KeyError:
-                pass
-            if home_env_var == "":
-                print(
-                    "ERROR: Both the XDG_DATA_HOME and HOME environment "
-                    + "variables are either undefined or empty!",
-                    file=sys.stderr
-                )
-                sys.exit(1)
-            xdg_data_home = home_env_var + "/.local/share"
-        search_dir_list.append(xdg_data_home)
+            print(
+                "ERROR: Unable to determine the current user's home directory!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-        ## Again, using "" rather than None is intentional here.
-        xdg_data_dirs: str = ""
-        try:
-            xdg_data_dirs = os.environ["XDG_DATA_DIRS"]
-        except Exception:
-            pass
-        xdg_data_dir_list = [p for p in xdg_data_dirs.split(":") if p != ""]
-        if len(xdg_data_dir_list) == 0:
-            xdg_data_dir_list = ["/usr/local/share", "/usr/share"]
-        search_dir_list.extend(xdg_data_dir_list)
+        search_dir_list.append(Path(passwd_home) / ".local/share")
+        search_dir_list.extend([Path("/usr/local/share"), Path("/usr/share")])
 
         found_desktop_file: bool = False
         for search_dir in search_dir_list:
-            default_fm_path: Path = Path(
-                search_dir + "/applications/" + default_fm_desktop_file
-            )
+            default_fm_path = search_dir / "applications" / default_fm_desktop_file
             if default_fm_path.is_file():
                 found_desktop_file = True
                 break
@@ -278,20 +304,26 @@ class FmShimWindow(QDialog):
             )
             sys.exit(1)
 
-        for target_dir in self.dir_list:
-            if target_dir.is_dir():
+        for approved_dir in self.dir_list:
+            resolved_target_dir = approved_dir.resolve_if_unchanged()
+            if resolved_target_dir is not None:
                 subprocess.run(
-                    ["gio", "launch", str(default_fm_path), str(target_dir)],
+                    [
+                        "gio",
+                        "launch",
+                        str(default_fm_path),
+                        str(resolved_target_dir),
+                    ],
                     check=False,
                 )
             else:
                 QMessageBox.warning(
                     self,
                     "Open Directories",
-                    f"ERROR: '{target_dir}' was no longer a dir when checked "
-                    + "before opening! This may be the result of an "
-                    + "attempted attack. No further directories will be "
-                    + "opened."
+                    f"ERROR: '{approved_dir.path}' changed after approval "
+                    + "or was no longer a dir when re-checked. This may be "
+                    + "the result of an attempted attack. No further "
+                    + "directories will be opened."
                 )
                 sys.exit(1)
 
@@ -318,13 +350,13 @@ def signal_handler(sig: int, frame: FrameType | None) -> None:
 
 def get_path_list_from_uris(
     handler_mode: str, uri_list: list[str]
-) -> list[Path]:
+) -> list[ApprovedDirectory]:
     """
     Converts a list of URIs into a list of paths, discarding any invalid URIs
     that are encountered in the process.
     """
 
-    path_set: set[Path] = set()
+    approved_dir_set: set[ApprovedDirectory] = set()
 
     for uri in uri_list:
         ## Do not permit Unicode or control characters in URIs. This doesn't
@@ -379,10 +411,10 @@ def get_path_list_from_uris(
         if not os.access(path_item, os.R_OK | os.X_OK):
             continue
 
-        path_set.add(path_item)
+        approved_dir_set.add(ApprovedDirectory.from_path(path_item))
 
-    output_list: list[Path] = list(path_set)
-    output_list.sort()
+    output_list: list[ApprovedDirectory] = list(approved_dir_set)
+    output_list.sort(key=lambda approved_dir: approved_dir.path)
     return output_list
 
 
@@ -420,7 +452,7 @@ def main() -> NoReturn:
         print("ERROR: No handler mode provided!", file=sys.stderr)
         sys.exit(1)
 
-    path_list: list[Path] = get_path_list_from_uris(handler_mode, uri_list)
+    path_list: list[ApprovedDirectory] = get_path_list_from_uris(handler_mode, uri_list)
     if len(path_list) == 0:
         print("ERROR: All provided URIs were invalid!", file=sys.stderr)
         sys.exit(1)
