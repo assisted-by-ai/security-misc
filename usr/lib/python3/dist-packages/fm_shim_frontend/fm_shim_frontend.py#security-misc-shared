@@ -15,6 +15,7 @@ import os
 import signal
 import subprocess
 import urllib.parse
+import string
 from pathlib import Path
 from typing import NoReturn, cast
 from types import FrameType
@@ -316,6 +317,38 @@ def signal_handler(sig: int, frame: FrameType | None) -> None:
     sys.exit(128 + sig)
 
 
+_PRINTABLE_ASCII_BYTES: bytes = bytes(string.printable, "ascii")
+_ALLOWED_PATH_BYTES: frozenset[int] = frozenset(
+    byte_value
+    for byte_value in _PRINTABLE_ASCII_BYTES
+    if byte_value not in b"\t\n\r\x0b\x0c"
+)
+
+
+def decode_ascii_path_from_uri_path(uri_path: str) -> str | None:
+    """
+    Decodes a URI path only when it maps cleanly to a printable ASCII path.
+    """
+
+    path_bytes: bytes = urllib.parse.unquote_to_bytes(uri_path)
+
+    if len(path_bytes) == 0:
+        return None
+
+    if any(path_byte not in _ALLOWED_PATH_BYTES for path_byte in path_bytes):
+        return None
+
+    try:
+        path_str: str = path_bytes.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+    if not path_str.startswith("/"):
+        return None
+
+    return path_str
+
+
 def get_path_list_from_uris(
     handler_mode: str, uri_list: list[str]
 ) -> list[Path]:
@@ -327,10 +360,10 @@ def get_path_list_from_uris(
     path_set: set[Path] = set()
 
     for uri in uri_list:
-        ## Do not permit Unicode or control characters in URIs. This doesn't
-        ## guarantee that the file path will be free of Unicode due to URI
-        ## escaping, but it should prevent hitting any dangerous edge-cases in
-        ## Python's unicode handling.
+        ## Reject raw Unicode and control characters before URI parsing so
+        ## that only visibly printable ASCII input ever reaches the path
+        ## decoder. This avoids ambiguous Unicode normalization and confusable
+        ## character edge-cases.
         if any((not 0x20 <= ord(uri_char) <= 0x7E) for uri_char in uri):
             continue
 
@@ -346,18 +379,10 @@ def get_path_list_from_uris(
         ):
             continue
 
-        path_str: str = urllib.parse.unquote(uri_components.path)
-
-        ## Do not permit Unicode or control characters in the path.
-        ## TODO: This could cause problems for non-English users, do we want
-        ## to establish a set of "safe" Unicode?
-        if any(
-            (not 0x20 <= ord(path_char) <= 0x7E) for path_char in path_str
-        ):
-            continue
-
-        ## Ensure path_str is absolute.
-        if not path_str.startswith("/"):
+        path_str: str | None = decode_ascii_path_from_uri_path(
+            uri_components.path
+        )
+        if path_str is None:
             continue
 
         try:
