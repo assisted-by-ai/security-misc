@@ -29,18 +29,20 @@ gcc_hardening_options=(
   "-Wcast-align=strict" "-Wjump-misses-init" "-Wlogical-op" "-U_FORTIFY_SOURCE"
   "-D_FORTIFY_SOURCE=3" "-fstack-clash-protection" "-fstack-protector-all"
   "-fno-delete-null-pointer-checks" "-fno-strict-aliasing"
-  "-fstrict-flex-arrays=3" "-ftrivial-auto-var-init=pattern" "-fPIE"
+  "-fstrict-flex-arrays=3" "-ftrivial-auto-var-init=zero" "-fPIE"
 )
 
 gcc_machine="$(gcc -dumpmachine)"
 if [ "${gcc_machine}" = 'x86_64-linux-gnu' ]; then
   gcc_hardening_options+=( '-fcf-protection=full' )
 elif [ "${gcc_machine}" = 'aarch64-linux-gnu' ]; then
-  gcc_hardening_options+=( '-mbranch-protection=standard' )
+  gcc_hardening_options+=( '-mbranch-protection=pac-ret+leaf+bti' )
 fi
 
 gcc_hardening_options+=(
+  "-fno-plt"
   "-Wl,-z,nodlopen" "-Wl,-z,noexecstack" "-Wl,-z,relro" "-Wl,-z,now"
+  "-Wl,-z,separate-code" "-Wl,-z,nodump"
   "-Wl,--as-needed" "-Wl,--no-copy-dt-needed-entries" "-pie"
 )
 
