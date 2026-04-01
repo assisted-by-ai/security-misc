@@ -10,6 +10,14 @@ StartLimitBurst=3
 Type=notify
 ExecStart=/usr/bin/fm-shim-backend
 Restart=always
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=default.target
