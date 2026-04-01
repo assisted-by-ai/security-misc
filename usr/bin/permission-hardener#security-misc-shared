@@ -595,17 +595,20 @@ commit_policy() {
     if [ "${existing_owner}" != "${state_user_owner_item}" ] \
       || [ "${existing_group}" != "${state_group_owner_item}" ] \
       || [ "${existing_mode}" != "${state_mode_item}" ]; then
-      if ! [[ "${passwd_file_contents}" =~ "${state_user_owner_item}:" ]]; then
+      ## Anchor user/group lookups to line boundaries to prevent substring matches
+      ## (e.g. 'roo' must not match 'root:...')
+      if ! [[ $'\n'"${passwd_file_contents}" =~ $'\n'"${state_user_owner_item}:" ]]; then
         log error "Owner from config does not exist: '${state_user_owner_item}'" >&2
         continue
       fi
 
-      if ! [[ "${group_file_contents}" =~ "${state_group_owner_item}:" ]]; then
+      if ! [[ $'\n'"${group_file_contents}" =~ $'\n'"${state_group_owner_item}:" ]]; then
         log error "Group from config does not exist: '${state_group_owner_item}'" >&2
         continue
       fi
       ## Remove and reapply in main list
-      if [[ "${orig_main_statoverride_db}" =~ "${file_name_from_stat}" ]]; then
+      ## Anchor to line boundary to prevent substring path matches
+      if [[ $'\n'"${orig_main_statoverride_db}" =~ [[:space:]]"${file_name_from_stat}"($'\n'|$) ]]; then
         echo_wrapper_ignore silent dpkg-statoverride --remove \
           "${file_name_from_stat}"
       fi
@@ -614,7 +617,7 @@ commit_policy() {
         "${state_mode_item}" "${file_name_from_stat}"
 
       ## Update item in secondary list
-      if [[ "${orig_new_statoverride_db}" =~ "${file_name_from_stat}" ]]; then
+      if [[ $'\n'"${orig_new_statoverride_db}" =~ [[:space:]]"${file_name_from_stat}"($'\n'|$) ]]; then
         # shellcheck disable=SC2086
         echo_wrapper_ignore silent dpkg-statoverride \
           ${dpkg_admindir_parameter_new_mode} --remove \
@@ -699,12 +702,12 @@ undo_policy_for_file() {
       # shellcheck disable=SC2086
       orig_new_statoverride_db="$(dpkg-statoverride ${dpkg_admindir_parameter_new_mode} --list)" || true
 
-      if [[ "${orig_main_statoverride_db}" =~ "${undo_file}" ]]; then
+      if [[ $'\n'"${orig_main_statoverride_db}" =~ [[:space:]]"${undo_file}"($'\n'|$) ]]; then
         echo_wrapper_ignore silent dpkg-statoverride --remove \
           "${undo_file}"
       fi
 
-      if [[ "${orig_new_statoverride_db}" =~ "${undo_file}" ]]; then
+      if [[ $'\n'"${orig_new_statoverride_db}" =~ [[:space:]]"${undo_file}"($'\n'|$) ]]; then
         # shellcheck disable=SC2086
         echo_wrapper_ignore silent dpkg-statoverride \
           ${dpkg_admindir_parameter_new_mode} --remove \
@@ -871,12 +874,12 @@ print_fs_audit() {
     if [ "${existing_owner}" != "${state_user_owner_item}" ] \
       || [ "${existing_group}" != "${state_group_owner_item}" ] \
       || [ "${existing_mode}" != "${state_mode_item}" ]; then
-      if ! [[ "${passwd_file_contents}" =~ "${state_user_owner_item}:" ]]; then
+      if ! [[ $'\n'"${passwd_file_contents}" =~ $'\n'"${state_user_owner_item}:" ]]; then
         echo "!!! Owner from config does not exist: '${state_user_owner_item}'"
         continue
       fi
 
-      if ! [[ "${group_file_contents}" =~ "${state_group_owner_item}:" ]]; then
+      if ! [[ $'\n'"${group_file_contents}" =~ $'\n'"${state_group_owner_item}:" ]]; then
         echo "!!! Group from config does not exist: '${state_group_owner_item}'"
         continue
       fi

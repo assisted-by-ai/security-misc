@@ -5,7 +5,8 @@
 
 ## https://serverfault.com/questions/134471/success-n-control-syntax-in-pam-conf-pam-d-files
 
-set -x
+## set -x intentionally omitted in production to avoid leaking
+## PAM authentication details into system logs.
 
 true "PAM_SERVICE: $PAM_SERVICE"
 

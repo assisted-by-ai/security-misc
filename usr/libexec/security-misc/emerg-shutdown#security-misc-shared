@@ -53,7 +53,10 @@ gcc_hardening_options+=(
   "-Wl,--as-needed" "-Wl,--no-copy-dt-needed-entries" "-pie"
 )
 
-## Read emergency shutdown key configuration
+## Read emergency shutdown key configuration.
+## Threat model: local files that can only be edited by root are
+## out-of-scope and considered trusted. These config directories
+## are root-owned, so sourcing their contents is acceptable.
 for config_file in /etc/security-misc/emerg-shutdown/*.conf /usr/local/etc/security-misc/emerg-shutdown/*.conf; do
   if [ -f "${config_file}" ]; then
     bash -n "${config_file}"
