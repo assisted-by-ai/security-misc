@@ -332,7 +332,7 @@ int main(void) {
 
   dbus_name_request_rslt = dbus_bus_request_name(dbus_conn,
     "org.freedesktop.FileManager1",
-    DBUS_NAME_FLAG_REPLACE_EXISTING,
+    DBUS_NAME_FLAG_REPLACE_EXISTING | DBUS_NAME_FLAG_DO_NOT_QUEUE,
     &error_data);
   if (dbus_name_request_rslt == -1) {
     errx(1, "Failed to request 'org.freedesktop.FileManager1' name from D-Bus. Error name: '%s'. Error contents: '%s'.",
@@ -345,14 +345,8 @@ int main(void) {
     sd_notify(0, "READY=1");
     sd_notify(0, "STATUS=Running");
     break;
-  case DBUS_REQUEST_NAME_REPLY_IN_QUEUE:
-    warnx("Requested 'org.freedesktop.FileManager1' name from D-Bus, but was placed in queue.");
-    warnx("This may be a security risk! Please report this bug!");
-    /*
-     * sd_notify(0, "READY=1") is intentionally omitted here, so that
-     * systemcheck will show a warning about the system not being ready
-     */
-    sd_notify(0, "STATUS=Running, security issue detected");
+  case DBUS_REQUEST_NAME_REPLY_EXISTS:
+    errx(1, "Another process already owns 'org.freedesktop.FileManager1' name and did not allow replacement!");
     break;
   case DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER:
     warnx("Possible bug, we already own 'org.freedesktop.FileManager1' name?");

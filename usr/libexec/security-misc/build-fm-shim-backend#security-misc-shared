@@ -44,14 +44,19 @@ gcc_hardening_options+=(
   "-Wl,--as-needed" "-Wl,--no-copy-dt-needed-entries" "-pie"
 )
 
+read -r -a pkg_cflags_dbus <<< "$(pkg-config --cflags dbus-1)"
+read -r -a pkg_cflags_systemd <<< "$(pkg-config --cflags libsystemd)"
+read -r -a pkg_libs_dbus <<< "$(pkg-config --libs dbus-1)"
+read -r -a pkg_libs_systemd <<< "$(pkg-config --libs libsystemd)"
+
 gcc \
   -g \
-  $(pkg-config --cflags dbus-1) \
-  $(pkg-config --cflags libsystemd) \
+  "${pkg_cflags_dbus[@]}" \
+  "${pkg_cflags_systemd[@]}" \
   /usr/src/security-misc/fm-shim-backend.c \
   -o /usr/bin/fm-shim-backend \
-  $(pkg-config --libs dbus-1) \
-  $(pkg-config --libs libsystemd) \
+  "${pkg_libs_dbus[@]}" \
+  "${pkg_libs_systemd[@]}" \
   "${gcc_hardening_options[@]}" \
   || {
     printf "%s\n" 'Could not compile fm-shim-backend executable!'
