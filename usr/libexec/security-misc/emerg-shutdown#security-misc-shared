@@ -45,7 +45,7 @@ gcc_hardening_options=(
   "-D_FORTIFY_SOURCE=3" "-fstack-clash-protection" "-fstack-protector-all"
   "-fno-delete-null-pointer-checks" "-fno-strict-overflow"
   "-fno-strict-aliasing" "-fstrict-flex-arrays=3"
-  "-ftrivial-auto-var-init=pattern" "-fPIE"
+  "-ftrivial-auto-var-init=zero" "-fPIE"
 )
 
 gcc_machine="$(gcc -dumpmachine)"
@@ -53,14 +53,13 @@ if [ "${gcc_machine}" = 'x86_64-linux-gnu' ]; then
   gcc_hardening_options+=( '-fcf-protection=full' )
   gcc_hardening_options+=( '-fzero-call-used-regs=all' )
 elif [ "${gcc_machine}" = 'aarch64-linux-gnu' ]; then
-  gcc_hardening_options+=( '-mbranch-protection=standard' )
+  gcc_hardening_options+=( '-mbranch-protection=pac-ret+leaf+bti' )
   gcc_hardening_options+=( '-fzero-call-used-regs=all' )
 fi
 
 gcc_hardening_options+=(
-  "-Wl,-z,nodlopen" "-Wl,-z,noexecstack" "-Wl,-z,relro" "-Wl,-z,now"
-  "-Wl,-z,separate-code" "-Wl,--as-needed" "-Wl,--no-copy-dt-needed-entries"
-  "-pie"
+  "-Wl,-z,noexecstack" "-Wl,-z,relro" "-Wl,-z,now"
+  "-Wl,-z,separate-code" "-Wl,-z,nodump"
 )
 
 ## Read emergency shutdown key configuration
@@ -91,7 +90,7 @@ else
       /usr/src/security-misc/emerg-shutdown.c \
       -o \
       /run/emerg-shutdown \
-      -static \
+      -static-pie \
       "${gcc_hardening_options[@]}" \
       || {
         printf "%s\n" 'Could not compile force-shutdown executable!'
