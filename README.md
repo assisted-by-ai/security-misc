@@ -839,6 +839,22 @@ application makes to open one or more directories, while also ensuring
 applications can only try to open directories (not files), and cannot try to
 open directories that the user cannot access.
 
+The shim consists of two components:
+
+- A C backend that claims the `org.freedesktop.FileManager1` D-Bus name on the session
+  bus, intercepts `ShowFolders`, `ShowItems`, and `ShowItemProperties` method calls, and
+  forwards them to the frontend. The backend is compiled with comprehensive GCC hardening
+  flags including `_FORTIFY_SOURCE=3`, full stack protector, PIE, RELRO, and
+  architecture-specific control-flow integrity protections.
+
+- A Python/PyQt5 frontend that validates received URIs (restricting to local `file://`
+  URIs, rejecting Unicode and control characters, verifying paths exist and are accessible
+  directories), resolves symlinks so the user sees the actual target, and presents a
+  confirmation dialog before opening the directories with the system's default file manager
+  via `gio launch`.
+
+The backend runs as a systemd user service that starts automatically on login.
+
 See:
 
 - `/usr/src/security-misc/fm-shim-backend.c`
